@@ -1,0 +1,101 @@
+classDiagram
+    class TheLoai {
+        +int MaTheLoai
+        +string TenTheLoai
+        +string MoTa
+    }
+
+    class TacGia {
+        +int MaTacGia
+        +string TenTacGia
+        +string MoTa
+    }
+
+    class Sach {
+        +int MaSach
+        +string TenSach
+        +string HinhAnh
+        +string MoTa
+        +string NhaXuatBan
+        +int SoLuong
+        +decimal DonGia
+        +int MaTheLoai
+    }
+
+    class NhanVien {
+        +int MaNhanVien
+        +string HoTen
+        +DateTime NgaySinh
+        +string DiaChi
+        +string CCCD
+        +string SoDienThoai
+        +string Username
+        +string Password
+        +string TrangThai
+    }
+
+    class DocGia {
+        +int MaDocGia
+        +string HoTen
+        +DateTime NgaySinh
+        +string DiaChi
+        +string CCCD
+        +string SoDienThoai
+        +string Username
+        +string Password
+        +string TrangThai
+    }
+
+    class TheThuVien {
+        +int MaThe
+        +DateTime NgayHetHan
+        +string TrangThai
+        +int MaDocGia
+    }
+
+    class PhieuMuon {
+        +int MaPhieuMuon
+        +DateTime NgayLap
+        +int TongSoSachMuon
+        +int MaThe
+        +int MaNhanVien
+    }
+
+    class ChiTietPhieuMuon {
+        +int MaPhieuMuon
+        +int MaSach
+        +DateTime NgayTraDuKien
+        +DateTime NgayTraThucTe
+        +string TrangThaiMuon
+        +string TrangThaiSach
+    }
+
+    class HoaDon {
+        +int MaHoaDon
+        +DateTime NgayLap
+        +decimal SoTien
+        +string NoiDung
+        +int MaDocGia
+        +int MaNhanVien
+    }
+
+    class YeuCauGiaHan {
+        +int MaYeuCauGiaHan
+        +int MaPhieuMuon
+        +int MaSach
+        +DateTime NgayTao
+        +DateTime NgayGiaHan
+        +string TrangThai
+    }
+
+    %% Relationships
+    TheLoai "1" -- "*" Sach : has
+    TacGia "*" -- "*" Sach : writes
+    DocGia "1" -- "*" TheThuVien : owns
+    TheThuVien "1" -- "*" PhieuMuon : initiates
+    NhanVien "1" -- "*" PhieuMuon : processes
+    PhieuMuon "1" *-- "*" ChiTietPhieuMuon : contains
+    Sach "1" -- "*" ChiTietPhieuMuon : is_borrowed
+    DocGia "1" -- "*" HoaDon : pays
+    NhanVien "1" -- "*" HoaDon : creates
+    ChiTietPhieuMuon "1" -- "*" YeuCauGiaHan : requests_extension
