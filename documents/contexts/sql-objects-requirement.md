@@ -17,7 +17,7 @@
 
 ## C. Triggers 
 1.	Cập nhật số lượng sách khi mượn: Khi insert vào CHITIETPHIEUMUON, tự động giảm SoLuong trong SACH. Khi SoLuong đã bằng 0 -> thất bại.
-2.	Cập nhật số lượng sách khi trả: Khi update TrangThai trả sách = ‘nguyên vẹn’, tự động tăng lại SoLuong trong SACH
+2.	Cập nhật số lượng sách khi trả: Khi update TrangThaiMuon từ 'Đang mượn' hoặc 'Trễ hẹn' sang 'Đã trả' và TrangThaiSach là 'Tốt', tự động tăng lại SoLuong trong SACH
 3.	Kiểm tra thẻ thư viện: Ngăn insert vào PHIEUMUON nếu THETHUVIEN đó đã hết hạn/bị khóa
 4.	Tự động tạo tài khoản: Khi insert DOCGIA, tự động tạo một dòng tương ứng trong bảng TAIKHOAN với username = họ tên không dấu, pwd = cccd
 5.	Kiểm tra gia hạn: Đảm bảo một chi tiết phiếu mượn chỉ gia hạn 1 lần

@@ -4,11 +4,6 @@ GO
 SELECT *
 FROM PhieuMuon;
 
-SELECT *
-FROM Sach;
-
-SELECT *
-FROM ChiTietPhieuMuon;
 
 
 SELECT MaSach
@@ -38,21 +33,21 @@ VALUES
     (1, 5, '2024-02-10 00:00:00.0000000', '2024-02-08 00:00:00.0000000', N'Đang mượn', N'Tốt'),
     (2, 5, '2024-02-10 00:00:00.0000000', '2024-02-08 00:00:00.0000000', N'Đang mượn', N'Tốt');
 
+SELECT *
+FROM Sach
+WHERE MaSach = 4;
+
+SELECT *
+FROM ChiTietPhieuMuon
+WHERE MaPhieuMuon = 3;
 
 
 
-IF EXISTS (SELECT 1
-FROM deleted)
-    BEGIN
+UPDATE ChiTietPhieuMuon
+SET TrangThaiMuon = N'Đang mượn', TrangThaiSach = N'Tốt'
+WHERE MaPhieuMuon = 1 AND MaSach = 4;
 
-    UPDATE ct
-        SET ct.MaPhieuMuon = i.MaPhieuMuon,
-            ct.MaSach = i.MaSach,
-            ct.NgayTraDuKien = i.NgayTraDuKien,
-            ct.NgayTraThucTe = i.NgayTraThucTe,
-            ct.TrangThaiMuon = i.TrangThaiMuon,
-            ct.TrangThaiSach = i.TrangThaiSach
-        FROM ChiTietPhieuMuon ct
-        JOIN inserted i ON ct.MaPhieuMuon = i.MaPhieuMuon;
-    RETURN
-END
+UPDATE ChiTietPhieuMuon
+SET TrangThaiMuon = N'Đã trả', TrangThaiSach = N'Tốt'
+WHERE MaPhieuMuon = 1 AND MaSach = 4;
+
