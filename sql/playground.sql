@@ -65,3 +65,10 @@ INSERT INTO YeuCauGiaHan
     (MaPhieuMuon, MaSach, NgayTao, NgayGiaHan, TrangThai)
 VALUES
     (13, 7, '2024-02-10 00:00:00.0000000', '2024-02-08 00:00:00.0000000', N'Đã duyệt');
+
+
+SELECT P.MaThe, COUNT(*)
+FROM ChiTietPhieuMuon C JOIN PhieuMuon P ON C.MaPhieuMuon = P.MaPhieuMuon
+    JOIN TheThuVien T ON P.MaThe = T.MaThe
+WHERE C.TrangThaiMuon = N'Đang mượn'
+GROUP BY P.MaThe
