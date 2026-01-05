@@ -51,3 +51,17 @@ UPDATE ChiTietPhieuMuon
 SET TrangThaiMuon = N'Đã trả', TrangThaiSach = N'Tốt'
 WHERE MaPhieuMuon = 1 AND MaSach = 4;
 
+SELECT *
+FROM ChiTietPhieuMuon;
+
+SELECT *
+FROM YeuCauGiaHan;
+
+SELECT Y.MaYeuCauGiaHan, Y.MaPhieuMuon, Y.MaSach, Y.NgayTao, Y.NgayGiaHan, Y.TrangThai
+FROM ChiTietPhieuMuon C JOIN YeuCauGiaHan Y ON C.MaPhieuMuon = Y.MaPhieuMuon AND C.MaSach = Y.MaSach
+WHERE C.MaPhieuMuon = 13 AND C.MaSach = 7;
+
+INSERT INTO YeuCauGiaHan
+    (MaPhieuMuon, MaSach, NgayTao, NgayGiaHan, TrangThai)
+VALUES
+    (13, 7, '2024-02-10 00:00:00.0000000', '2024-02-08 00:00:00.0000000', N'Đã duyệt');
