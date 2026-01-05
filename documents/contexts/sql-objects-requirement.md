@@ -20,7 +20,7 @@
 2.	Cập nhật số lượng sách khi trả: Khi update TrangThaiMuon từ 'Đang mượn' hoặc 'Trễ hẹn' sang 'Đã trả' và TrangThaiSach là 'Tốt', tự động tăng lại SoLuong trong SACH
 3.	Kiểm tra thẻ thư viện: Ngăn insert vào PHIEUMUON nếu THETHUVIEN đó đã hết hạn/bị khóa
 4.	Tự động tạo tài khoản: Khi insert DOCGIA, tự động tạo một dòng tương ứng trong bảng TAIKHOAN với username = họ tên không dấu, pwd = cccd
-5.	Kiểm tra gia hạn: Đảm bảo một chi tiết phiếu mượn chỉ gia hạn 1 lần
+5.	Kiểm tra gia hạn: Đảm bảo một chi tiết phiếu mượn chỉ gia hạn 1 lần cho 1 sách
 6.	Kiểm tra cccd và sdt: Ngăn insert/update CCCD và SDT bị trùng lặp trong bảng DOCGIA và NHANVIEN
 7.	Kiểm tra sách trước khi xóa: Ngăn delete một mã sách nếu mã đó vẫn còn tồn tại trong bảng CHITIETPHIEUMUON ở trạng thái 'Đang mượn'
 ## D. Cursors
