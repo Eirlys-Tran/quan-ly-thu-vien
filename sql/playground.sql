@@ -42,7 +42,6 @@ FROM ChiTietPhieuMuon
 WHERE MaPhieuMuon = 3;
 
 
-
 UPDATE ChiTietPhieuMuon
 SET TrangThaiMuon = N'Đang mượn', TrangThaiSach = N'Tốt'
 WHERE MaPhieuMuon = 1 AND MaSach = 4;
