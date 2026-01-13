@@ -8,7 +8,7 @@ GO
 -- 1. Tạo phiếu mượn
 -- Kiểm tra: Độc giả có đang mượn sách, thẻ thư viện, số lượng sách
 -- Gọi func kt nợ sách quá hạn, số lượng sách
-CREATE OR ALTER PROCEDURE dbo.sp_TaoPhieuMuon (@MaThe INT, @MaNhanVien INT, @TongSach INT, @DSSach NVARCHAR(MAX), @SoNgayMuon INT, @MaPhieu INT OUT)
+CREATE OR ALTER PROCEDURE dbo.sp_TaoPhieuMuon (@MaThe INT, @MaNhanVien INT, @TongSach INT, @DSSach NVARCHAR(MAX), @SoNgayMuon INT, @MaPhieu INT OUT, @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -72,7 +72,7 @@ BEGIN
 			-- tạo phiếu mượn
 			INSERT INTO PhieuMuon (NgayLap, TongSoSachMuon, MaThe, MaNhanVien) VALUES (GETDATE(), @TongSach, @MaThe, @MaNhanVien)
 			SET @MaPhieu = SCOPE_IDENTITY()
-			RAISERROR(N'Đã tạo phiếu mượn. Mã phiếu: %d', 0, 0, @MaPhieu);
+			SET @ThongBao = N'Đã tạo phiếu mượn thành công. Mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(5));
 
 			-- tạo chitietphieumuon
 			INSERT INTO ChiTietPhieuMuon(MaPhieuMuon, MaSach, NgayTraDuKien, TrangThaiMuon) SELECT @MaPhieu, MaSach, DATEADD(DAY, @SoNgayMuon, GETDATE()), N'Đang mượn'
@@ -97,7 +97,7 @@ GO
 -- Gọi func B2 - lấy ra maphieumuon + NgayLap của sách có trạng thái là đặt trước, kiểm tra NgayLap so sánh với NgayTao trong bảng YeuCauGiaHan
 -- NgayLap > NgayTao và NgayTao >= 7 ngày so với NgayTraDuKien
 -- Yếu tố từ chối gia hạn: MaSach được yêu cầu gia hạn nằm trong danh sách Đặt trước hoặc NgayTao < 7 ngày so với NgayTraDuKien
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyYeuCauGiaHan (@MaPhieu INT, @MaSach INT)
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyYeuCauGiaHan (@MaPhieu INT, @MaSach INT, @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	DECLARE @SachDT INT = (SELECT COUNT(*) FROM dbo.fn_LaySachDatTruoc (@MaSach));
@@ -119,20 +119,20 @@ BEGIN
 						FROM ChiTietPhieuMuon ct JOIN @tblGiaHan t ON ct.MaPhieuMuon = t.MaPhieuMuon AND ct.MaSach = t.MaSach
 						WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
-			RAISERROR(N'Gia hạn thành công với mã phiếu mượn: %d, mã sách: %d', 0, 0, @MaPhieu, @MaSach);
+			SET @ThongBao = 'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 
 		-- từ chối
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE (NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) < 7) OR NgayTaoYC > NgayLapPhieu)
 		BEGIN
 			UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
-			RAISERROR(N'Gia hạn thất bại với mã phiếu mượn: %d, mã sách: %d', 0, 0, @MaPhieu, @MaSach);
+			SET @ThongBao = N'Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 	END
 	ELSE
 	BEGIN
 		UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
-		RAISERROR(N'Gia hạn thất bại với mã phiếu mượn: %d, mã sách: %d', 0, 0, @MaPhieu, @MaSach);
+		SET @ThongBao = N'Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 	END
 END;
 GO
@@ -142,7 +142,7 @@ GO
 -- 3. Xử lý trả sách
 -- Update TrangThai trong bảng ChiTietPhieuMuon
 -- Tính tiền phạt và tự động tạo hóa đơn phạt (nếu có - gọi func Tính tiền phạt trễ hạn/mất sách)
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX))
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -229,6 +229,7 @@ BEGIN
 										JOIN @tblSach s ON ct.MaSach = s.MaSach
 					WHERE dbo.fn_TinhTienPhat(ct.MaPhieuMuon, ct.MaSach) > 0;
         COMMIT TRAN;
+		SET @ThongBao = N'Xử lý trả sách thành công';
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
@@ -245,7 +246,7 @@ GO
 -- Khi insert sách thành công thì insert cho bảng TacGia_Sach (attr HinhAnh sẽ lưu srcpath)
 CREATE OR ALTER PROCEDURE dbo.sp_ThemSach
 (@TenSach NVARCHAR(150), @MaTheLoai INT,  @TacGia NVARCHAR(100), @DonGia DECIMAL(10,2), @SoLuong INT = 0, @HinhAnh NVARCHAR(255),
-@MoTa NVARCHAR(500), @NhaXuatBan NVARCHAR(100))
+@MoTa NVARCHAR(500), @NhaXuatBan NVARCHAR(100), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -291,7 +292,10 @@ BEGIN
 					-- Input là MaTacGia
 					SET @MaTacGia = CAST(@TacGiaInput AS INT);
 					IF NOT EXISTS (SELECT 1 FROM TacGia WHERE MaTacGia = @MaTacGia)
+					BEGIN
 						RAISERROR(N'Tác giả có mã %d không tồn tại', 16, 1, @MaTacGia);
+						RETURN;
+					END
 					ELSE
 					BEGIN
 						IF NOT EXISTS (SELECT 1 FROM TacGia_Sach WHERE MaSach = @MaSachMoi AND MaTacGia = @MaTacGia)
@@ -318,6 +322,7 @@ BEGIN
 			DEALLOCATE cur;
 
         COMMIT TRAN;
+		SET @ThongBao = N'Đã thêm sách thành công với mã sách mới là: ' + CAST(@MaSachMoi AS NVARCHAR(10));
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
@@ -331,7 +336,7 @@ GO
 -- Update các attr HoTen, DiaChi, NgaySinh, CCCD, SoDienThoai, Username, Password cho bảng DocGia, NhanVien
 CREATE OR ALTER PROCEDURE dbo.sp_CapNhatThongTin
 (@Loai NVARCHAR(15), @Ma INT, @HoTen NVARCHAR(100) = NULL, @DiaChi NVARCHAR(200) = NULL, @NgaySinh DATE = NULL,
-@CCCD NVARCHAR(12) = NULL, @SDT NVARCHAR(10) = NULL, @Username NVARCHAR(45) NULL, @PWD NVARCHAR(255) = NULL)
+@CCCD NVARCHAR(12) = NULL, @SDT NVARCHAR(10) = NULL, @Username NVARCHAR(45) NULL, @PWD NVARCHAR(255) = NULL, @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -400,6 +405,7 @@ BEGIN
 				N'@HoTen NVARCHAR(100), @DiaChi NVARCHAR(200), @NgaySinh DATE, @CCCD NVARCHAR(12),  @SDT NVARCHAR(10), @Username NVARCHAR(45), @PWD NVARCHAR(255), @Ma INT',
 				@HoTen=@HoTen, @DiaChi=@DiaChi, @NgaySinh=@NgaySinh,  @CCCD=@CCCD, @SoDienThoai=@SDT, @Username=@Username, @Password=@PWD, @Ma=@Ma;
 		COMMIT TRAN;
+		SET @ThongBao = N'Đã cập nhật thông tin thành công';
 	END TRY
 	BEGIN CATCH
 		IF @@TRANCOUNT > 0
@@ -413,7 +419,7 @@ GO
 -- Kiểm tra độc giả còn đang mượn/nợ sách không
 -- Nếu không và loaixuly = 'hủy' thì Update TrangThaiThe = 'Hủy thẻ' (gọi cursor D2)
 -- Nếu có và loaixuly = 'khóa' thì Update TrangThaiThe = 'Khóa thẻ' và cập nhật trạng thái mượn = 'Trễ hạn' (gọi cursor D1)
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyTrangThaiTheThuVien (@MaThe INT, @LoaiXuLy NVARCHAR(20))
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyTrangThaiTheThuVien (@MaThe INT, @LoaiXuLy NVARCHAR(20), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	-- Trường hợp 1: Cập nhật trễ hạn cho phiếu mượn quá hạn và khóa thẻ
@@ -456,6 +462,7 @@ BEGIN
 
 		CLOSE cur_KhoaThe;
 		DEALLOCATE cur_KhoaThe;
+		SET @ThongBao = N'Đã thay đổi trạng thái và khóa thẻ khi quá hạn trả sách';
 	END
 
 	-- Trường hợp 2: Cập nhật trạng thái thẻ = 'Hủy thẻ' nếu độc giả không có bất kỳ sách đang mượn/nợ/đặt trước
@@ -469,6 +476,7 @@ BEGIN
 			RETURN;
 		END
 		UPDATE TheThuVien SET TrangThai = N'Hủy thẻ', Deleted_at = GETDATE() WHERE MaThe = @MaThe;
+		SET @ThongBao = N'Đã hủy thẻ thành công';
 		RETURN;
 	END
 END;
