@@ -87,52 +87,73 @@ BEGIN
 END;
 GO
 -- test
---DECLARE @Ma INT
---EXEC dbo.sp_TaoPhieuMuon @MaThe =27, @MaNhanVien = 4, @TongSach = 3, @DSSach = '9,12,19', @SoNgayMuon = 20, @MaPhieu = @Ma
+--DECLARE @Ma INT, @TB NVARCHAR(200);
+--EXEC dbo.sp_TaoPhieuMuon @MaThe =27, @MaNhanVien = 4, @TongSach = 4, @DSSach = '7,32,33,34', @SoNgayMuon = 20, @MaPhieu = @Ma, @ThongBao = @TB;
 
 
 -- 2. Yêu cầu gia hạn sách
--- Update NgayTraDuKie, TrangThaiMuon trong bảng ChiTietPhieuMuon và TrangThai trong bảng YeuCauGiaHan
--- Điều kiện duyệt gia hạn:
+-- Update NgayTraDuKien, TrangThaiMuon trong bảng ChiTietPhieuMuon và TrangThai trong bảng YeuCauGiaHan
 -- Gọi func B2 - lấy ra maphieumuon + NgayLap của sách có trạng thái là đặt trước, kiểm tra NgayLap so sánh với NgayTao trong bảng YeuCauGiaHan
--- NgayLap > NgayTao và NgayTao >= 7 ngày so với NgayTraDuKien
--- Yếu tố từ chối gia hạn: MaSach được yêu cầu gia hạn nằm trong danh sách Đặt trước hoặc NgayTao < 7 ngày so với NgayTraDuKien
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyYeuCauGiaHan (@MaPhieu INT, @MaSach INT, @ThongBao NVARCHAR(200) OUT)
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyYeuCauGiaHan (@MaYeuCau INT, @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
-	DECLARE @SachDT INT = (SELECT COUNT(*) FROM dbo.fn_LaySachDatTruoc (@MaSach));
-	IF @SachDT > 0 -- mã sách có thể được gia hạn
+	IF NOT EXISTS (SELECT 1 FROM YeuCauGiaHan WHERE MaYeuCauGiaHan = @MaYeuCau)
 	BEGIN
-		DECLARE @tblGiaHan TABLE (MaPhieuMuon INT, MaSach INT, NgayTaoYC DATE, NgayGiaHanMoi DATE, NgayTraDuKien DATE, NgayLapPhieu DATE)
-		INSERT INTO @tblGiaHan (MaPhieuMuon, MaSach, NgayTaoYC, NgayGiaHanMoi, NgayTraDuKien)
-					SELECT yc.MaPhieuMuon, yc.MaSach, yc.NgayTao, yc.NgayGiaHan, ct.NgayTraDuKien
-					FROM YeuCauGiaHan yc JOIN ChiTietPhieuMuon ct ON yc.MaPhieuMuon = ct.MaPhieuMuon AND yc.MaSach = ct.MaSach
-					WHERE yc.MaPhieuMuon = @MaPhieu AND yc.MaSach = @MaSach AND yc.TrangThai = N'Đang chờ';
+		RAISERROR(N'Mã yêu cầu không tồn tại!', 16, 1);
+		RETURN;
+	END
 
+	DECLARE @MaPhieu INT, @MaSach INT;
+	SELECT @MaPhieu = MaPhieuMuon, @MaSach = MaSach
+	FROM YeuCauGiaHan
+	WHERE MaYeuCauGiaHan = @MaYeuCau;
+
+	IF EXISTS (SELECT 1 FROM ChiTietPhieuMuon WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach AND TrangThaiMuon = N'Trễ hạn' AND NgayTraThucTe IS NULL)
+	BEGIN
+		UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
+		SET @ThongBao = N'Sách đã quá hạn trả. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+	END
+	
+	-- lấy ra danh sách yêu cầu đang chờ duyệt
+	DECLARE @SachDT INT = (SELECT COUNT(*) FROM dbo.fn_LaySachDatTruoc (@MaSach));
+	DECLARE @tblGiaHan TABLE (MaPhieuMuon INT, MaSach INT, NgayTaoYC DATE, NgayGiaHanMoi DATE, NgayTraDuKien DATE, NgayLapPhieu DATE)
+
+	INSERT INTO @tblGiaHan (MaPhieuMuon, MaSach, NgayTaoYC, NgayGiaHanMoi, NgayTraDuKien)
+				SELECT yc.MaPhieuMuon, yc.MaSach, yc.NgayTao, yc.NgayGiaHan, ct.NgayTraDuKien
+				FROM YeuCauGiaHan yc JOIN ChiTietPhieuMuon ct ON yc.MaPhieuMuon = ct.MaPhieuMuon AND yc.MaSach = ct.MaSach
+				WHERE yc.MaPhieuMuon = @MaPhieu AND yc.MaSach = @MaSach AND yc.TrangThai = N'Đang chờ';
+	
+	IF @SachDT > 0
+	BEGIN
 		UPDATE ycgh SET NgayLapPhieu = dt.NgayLap
 				FROM @tblGiaHan ycgh JOIN dbo.fn_LaySachDatTruoc (@MaSach) dt ON ycgh.MaPhieuMuon = dt.MaPhieuMuon;
 		
-		-- Duyệt
+		-- Duyệt: ngày yêu cầu gia hạn < ngày tạo mượn sách VÀ <= so với ngày trả dự kiến
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) >= 7)
 		BEGIN
 			UPDATE ct SET ct.NgayTraDuKien = t.NgayGiaHanMoi, ct.TrangThaiMuon = N'Đã gia hạn'
 						FROM ChiTietPhieuMuon ct JOIN @tblGiaHan t ON ct.MaPhieuMuon = t.MaPhieuMuon AND ct.MaSach = t.MaSach
 						WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
-			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
+
+			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
 			SET @ThongBao = 'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 
 		-- từ chối
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE (NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) < 7) OR NgayTaoYC > NgayLapPhieu)
 		BEGIN
-			UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
-			SET @ThongBao = N'Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
+			SET @ThongBao = N'Sách nằm trong danh sách mượn trước. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 	END
 	ELSE
 	BEGIN
-		UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach;
-		SET @ThongBao = N'Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		UPDATE ct SET ct.NgayTraDuKien = t.NgayGiaHanMoi, ct.TrangThaiMuon = N'Đã gia hạn'
+					FROM ChiTietPhieuMuon ct JOIN @tblGiaHan t ON ct.MaPhieuMuon = t.MaPhieuMuon AND ct.MaSach = t.MaSach
+					WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
+
+		UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
+		SET @ThongBao = 'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 	END
 END;
 GO
@@ -142,12 +163,12 @@ GO
 -- 3. Xử lý trả sách
 -- Update TrangThai trong bảng ChiTietPhieuMuon
 -- Tính tiền phạt và tự động tạo hóa đơn phạt (nếu có - gọi func Tính tiền phạt trễ hạn/mất sách)
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX), @ThongBao NVARCHAR(200) OUT)
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX), @MaNhanVien INT, @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
 		BEGIN TRAN;
-			-- Gọi stored để cập nhật trạng thái các sách trễ hạn
+			-- Kiểm tra mã phiếu mượn hợp lệ + lấy ra mã thẻ
 			DECLARE @MaThe INT = (SELECT MaThe FROM PhieuMuon WHERE MaPhieuMuon = @MaPhieuMuon)
 			IF @MaThe IS NULL
 			BEGIN
@@ -155,81 +176,108 @@ BEGIN
 				RETURN;
 			END
 
-			IF EXISTS (SELECT 1
-						FROM ChiTietPhieuMuon
-						WHERE MaPhieuMuon = @MaPhieuMuon AND NgayTraDuKien < GETDATE() AND NgayTraThucTe IS NULL AND TrangThaiMuon <> N'Trễ hạn')
-				EXEC dbo.sp_XuLyTrangThaiTheThuVien @MaThe, N'Khóa';
-
-			-- Kiểm tra danh sách mã sách và trạng thái
-			DECLARE @tblSach TABLE (MaSach INT, TrangThaiSach NVARCHAR(10));
-			DECLARE @ID INT = 1;
-			DECLARE @Count INT, @temp_MaSach NVARCHAR(20), @temp_TrangThai NVARCHAR(50);
-
-			-- Đếm số lượng mã được truyền vào
-			SELECT @Count = COUNT(*)
-			FROM STRING_SPLIT(@DSSach, ',');
-
-			-- tạo từng record hợp lệ cho bảng tạm tblSach
-			WHILE @ID <= @Count
+			-- Kiểm tra MaNhanVien hợp lệ không
+			IF NOT EXISTS (SELECT 1 FROM NhanVien WHERE MaNhanVien = @MaNhanVien AND TrangThai = N'Hoạt động')
 			BEGIN
-				-- tạo thứ tự cho từng mã sách
-				SELECT @temp_MaSach = LTRIM(RTRIM(value))
-				FROM (SELECT value, ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) AS rn 
-						FROM STRING_SPLIT(@DSSach, ',')) temp_sach
-				WHERE rn = @ID;
-
-				-- tạo thứ tự cho từng trạng thái sách
-				SELECT @temp_TrangThai = LTRIM(RTRIM(value))
-				FROM (SELECT value, ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) AS rn 
-						FROM STRING_SPLIT(@DSTrangThaiSach, ',')) temp_trangthaisach
-				WHERE rn = @ID;
-
-				-- Kiếm tra mã sách là số và trạng thái sách là hợp lệ
-				IF ISNUMERIC(@temp_MaSach) = 0 OR @temp_TrangThai NOT IN (N'Tốt', N'Hỏng', N'Mất')
-				BEGIN
-					RAISERROR (N'Mã sách hoặc trạng thái sách không hợp lệ tại vị trí %d', 16, 1, @ID);
-					RETURN;
-				END
-
-				INSERT INTO @tblSach (MaSach, TrangThaiSach) VALUES (CAST(@temp_MaSach AS INT), @temp_TrangThai)
-				SET @ID += 1;
+				RAISERROR(N'Nhân viên không tồn tại', 16, 1);
+				RETURN;
 			END
-			
+
+			-- Kiểm tra danh sách và số lượng trong bảng tạm lấy từ input
+			DECLARE @tblInput TABLE (ID INT PRIMARY KEY, MaSachRaw NVARCHAR(50), TrangThaiRaw NVARCHAR(50));
+			INSERT INTO @tblInput (ID, MaSachRaw) SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)), LTRIM(RTRIM(value))
+													FROM STRING_SPLIT(@DSSach, ',');
+
+			DECLARE @CountSach INT = @@ROWCOUNT;
+			DECLARE @CountTrangThai INT = (SELECT COUNT(*) FROM STRING_SPLIT(@DSTrangThaiSach, ','));
+			IF @CountSach <> @CountTrangThai
+			BEGIN
+				RAISERROR(N'Số lượng mã sách và trạng thái sách không khớp', 16, 1);
+				RETURN;
+			END
+
+			UPDATE i SET TrangThaiRaw = t.value
+						FROM @tblInput i JOIN (SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS rn, LTRIM(RTRIM(value)) AS value
+												FROM STRING_SPLIT(@DSTrangThaiSach, ',')) t ON i.ID = t.rn;
+
+			IF EXISTS (SELECT 1 FROM @tblInput WHERE ISNUMERIC(MaSachRaw) = 0)
+			BEGIN
+				DECLARE @ErrID1 INT = (SELECT TOP 1 ID FROM @tblInput WHERE ISNUMERIC(MaSachRaw) = 0);
+				RAISERROR(N'Mã sách không hợp lệ tại vị trí %d', 16, 1, @ErrID1);
+				RETURN;
+			END
+			IF EXISTS (SELECT 1 FROM @tblInput WHERE TrangThaiRaw NOT IN (N'Tốt', N'Hỏng', N'Mất'))
+			BEGIN
+				DECLARE @ErrID2 INT = (SELECT TOP 1 ID FROM @tblInput WHERE TrangThaiRaw NOT IN (N'Tốt', N'Hỏng', N'Mất'));
+				RAISERROR(N'Trạng thái sách không hợp lệ tại vị trí %d', 16, 1, @ErrID2);
+				RETURN;
+			END
+
+			-- Bảng tạm 2 với dữ liệu đã hợp lệ
+			DECLARE @tblSach TABLE (ID INT PRIMARY KEY, MaSach INT, TrangThaiSach NVARCHAR(10));
+			INSERT INTO @tblSach (ID, MaSach, TrangThaiSach) SELECT ID, CAST(MaSachRaw AS INT), TrangThaiRaw
+																FROM @tblInput;
+			IF EXISTS (SELECT MaSach
+						FROM @tblSach
+						GROUP BY MaSach
+						HAVING COUNT(*) > 1)
+			BEGIN
+				RAISERROR(N'Danh sách có mã sách bị trùng', 16, 1);
+				RETURN;
+			END
+
 			-- Kiểm tra mã sách có trong ChiTietPhieuMuon không
 			IF EXISTS (SELECT 1
 						FROM @tblSach t LEFT JOIN ChiTietPhieuMuon ct ON ct.MaPhieuMuon = @MaPhieuMuon AND ct.MaSach = t.MaSach
-						WHERE ct.MaPhieuMuon IS NULL)
+						WHERE ct.MaSach IS NULL)
 			BEGIN
 				RAISERROR(N'Có mã sách không thuộc phiếu mượn', 16, 1);
 				RETURN;
 			END
 
 			-- Update ChiTietPhieuMuon
-			UPDATE ct SET NgayTraThucTe = GETDATE(), TrangThaiMuon = CASE WHEN ct.TrangThaiMuon = N'Đang mượn' THEN N'Đã trả'
-																			ELSE ct.TrangThaiMuon END, TrangThaiSach = s.TrangThaiSach
+			UPDATE ct SET NgayTraThucTe = GETDATE(), TrangThaiMuon = CASE WHEN ct.NgayTraDuKien > GETDATE() THEN N'Đã trả'
+																			WHEN ct.NgayTraDuKien < GETDATE() THEN N'Trễ hạn'END,
+													TrangThaiSach = s.TrangThaiSach
 						FROM ChiTietPhieuMuon ct JOIN @tblSach s ON ct.MaSach = s.MaSach
-						WHERE ct.MaPhieuMuon = @MaPhieuMuon AND ct.TrangThaiMuon IN (N'Đang mượn', N'Trễ hạn');
-
-			-- Trả sách rồi thì mở khóa thẻ
-			IF NOT EXISTS (SELECT 1
-							FROM ChiTietPhieuMuon ct JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
-							WHERE pm.MaThe = @MaThe AND ct.TrangThaiMuon = N'Trễ hạn')
-			BEGIN
-				UPDATE TheThuVien SET TrangThai = N'Hoạt động', Updated_at = GETDATE() WHERE MaThe = @MaThe;
-			END
+						WHERE ct.MaPhieuMuon = @MaPhieuMuon AND ct.TrangThaiMuon IN (N'Đang mượn', N'Trễ hạn', N'Đã gia hạn');
 
 			-- Tính tiền phạt và in hóa đơn
+			DECLARE @InsertedID TABLE (ID INT);
 			INSERT INTO HoaDon(NgayLap, SoTien, NoiDung, MaDocGia, MaNhanVien)
+					OUTPUT inserted.MaHoaDon INTO @InsertedID
 					SELECT GETDATE(), dbo.fn_TinhTienPhat(ct.MaPhieuMuon, ct.MaSach) AS SoTien,
 							CASE WHEN ct.TrangThaiMuon IN (N'Đã trả', N'Trễ hạn') AND ct.TrangThaiSach IN (N'Hỏng', N'Mất') THEN N'Đền sách hỏng/mất'
 								WHEN ct.TrangThaiMuon = N'Trễ hạn' AND ct.TrangThaiSach = N'Tốt' THEN N'Trả tiền trễ hạn'
-							END AS NoiDung, tv.MaDocGia, pm.MaNhanVien 
+							END AS NoiDung, tv.MaDocGia, @MaNhanVien 
 					FROM TheThuVien tv JOIN PhieuMuon pm ON tv.MaThe = pm.MaThe
 										JOIN ChiTietPhieuMuon ct ON pm.MaPhieuMuon = ct.MaPhieuMuon
 										JOIN @tblSach s ON ct.MaSach = s.MaSach
 					WHERE dbo.fn_TinhTienPhat(ct.MaPhieuMuon, ct.MaSach) > 0;
+			
+			-- Kiểm tra sau khi độc giả trả sách rồi thì còn sách nào trễ hạn chưa trả không => có thực hiện khóa thẻ
+			DECLARE @TreHan BIT = 0;
+			IF EXISTS (SELECT 1
+						FROM ChiTietPhieuMuon ct JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
+						WHERE pm.MaThe = @MaThe AND ct.NgayTraDuKien < GETDATE() AND ct.NgayTraThucTe IS NULL)
+				SET @TreHan = 1;
+
+			IF @TreHan > 0
+				EXEC dbo.sp_XuLyTrangThaiTheThuVien @MaThe, N'Khóa', @ThongBao;
+			ELSE
+				UPDATE TheThuVien SET TrangThai = N'Hoạt động', Updated_at = GETDATE() WHERE MaThe = @MaThe;
+
+			-- hiển thị các mã hóa đơn nếu độc giả bị phạt tiền
+			DECLARE @RowCount INT = (SELECT COUNT(*) FROM @InsertedID);
+			IF @RowCount > 0
+			BEGIN
+				DECLARE @DanhSachID NVARCHAR(MAX) = (SELECT STRING_AGG(CAST(ID AS NVARCHAR(10)), ',') FROM @InsertedID);
+				SET @ThongBao = N'Xử lý trả sách thành công và độc giả có ' + CAST(@RowCount AS NVARCHAR(10)) + ' hóa đơn với mã: ' + @DanhSachID;
+			END
+			ELSE
+				SET @ThongBao = N'Xử lý trả sách thành công';
         COMMIT TRAN;
-		SET @ThongBao = N'Xử lý trả sách thành công';
+		
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
@@ -244,9 +292,9 @@ GO
 -- Kiểm tra trước khi insert:
 -- Kiểm tra sách trùng tên, tác giả và thể loại đã có, TacGia_Sach đã có dữ liệu chưa.
 -- Khi insert sách thành công thì insert cho bảng TacGia_Sach (attr HinhAnh sẽ lưu srcpath)
-CREATE OR ALTER PROCEDURE dbo.sp_ThemSach
-(@TenSach NVARCHAR(150), @MaTheLoai INT,  @TacGia NVARCHAR(100), @DonGia DECIMAL(10,2), @SoLuong INT = 0, @HinhAnh NVARCHAR(255),
-@MoTa NVARCHAR(500), @NhaXuatBan NVARCHAR(100), @ThongBao NVARCHAR(200) OUT)
+CREATE OR ALTER PROCEDURE dbo.sp_ThemSachMoi
+(@TenSach NVARCHAR(150), @HinhAnh NVARCHAR(255), @MoTa NVARCHAR(500), @NhaXuatBan NVARCHAR(100), @SoLuong INT, 
+@DonGia DECIMAL(10,2), @MaTheLoai INT, @TacGia NVARCHAR(100), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -267,62 +315,49 @@ BEGIN
 				RETURN;
 			END
 
-			-- insert sách
+			-- kiểm tra đơn giá và số lượng
+			IF @DonGia < 0 OR @SoLuong < 0
+				RAISERROR(N'Đơn giá hoặc số lượng không hợp lệ', 16, 1);
+
+			-- insert bảng Sach
 			DECLARE @MaSachMoi INT;
 			INSERT INTO Sach(TenSach, HinhAnh, MoTa, NhaXuatBan, SoLuong, DonGia, MaTheLoai, TrangThai) 
 					VALUES (@TenSach, @HinhAnh, @MoTa, @NhaXuatBan, @SoLuong, @DonGia, @MaTheLoai, N'Đang hoạt động');
-			SET @MaSachMoi = SCOPE_IDENTITY(); -- trả về mã sách vừa được tự generate
+			SET @MaSachMoi = SCOPE_IDENTITY();
 
-			-- xử lí danh sách tác giả: vd tentacgia,tentacgia2 hoặc matacgia,matacgia2
-			DECLARE @tblTacGia TABLE (TacGia NVARCHAR(100));
-			INSERT INTO @tblTacGia(TacGia) SELECT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@TacGia, ',');
+			-- tách từng row cho danh sách tác giả vào bảng tạm
+			DECLARE @tblTacGiaRaw TABLE (ID INT IDENTITY(1,1), TacGiaRaw NVARCHAR(100));
+			INSERT INTO @tblTacGiaRaw(TacGiaRaw) SELECT LTRIM(RTRIM(value)) FROM STRING_SPLIT(@TacGia, ',');
 
-			DECLARE @TacGiaInput NVARCHAR(100);
-			DECLARE cur CURSOR FOR
-			SELECT TacGia FROM @tblTacGia;
-
-			OPEN cur;
-			FETCH NEXT FROM cur INTO @TacGiaInput;
-
-			WHILE @@FETCH_STATUS = 0
+			IF EXISTS (SELECT 1 FROM @tblTacGiaRaw WHERE TacGiaRaw = '')
 			BEGIN
-				DECLARE @MaTacGia INT;
-				IF ISNUMERIC(@TacGiaInput) = 1
-				BEGIN
-					-- Input là MaTacGia
-					SET @MaTacGia = CAST(@TacGiaInput AS INT);
-					IF NOT EXISTS (SELECT 1 FROM TacGia WHERE MaTacGia = @MaTacGia)
-					BEGIN
-						RAISERROR(N'Tác giả có mã %d không tồn tại', 16, 1, @MaTacGia);
-						RETURN;
-					END
-					ELSE
-					BEGIN
-						IF NOT EXISTS (SELECT 1 FROM TacGia_Sach WHERE MaSach = @MaSachMoi AND MaTacGia = @MaTacGia)
-							INSERT INTO TacGia_Sach(MaSach, MaTacGia) VALUES (@MaSachMoi, @MaTacGia);
-					END
-				END
-				ELSE
-				BEGIN
-					-- Input là tên tác giả
-					SELECT @MaTacGia = MaTacGia
-					FROM TacGia
-					WHERE TenTacGia = @TacGiaInput;
-
-					IF @MaTacGia IS NULL
-						RAISERROR(N'Tác giả "%s" không tồn tại', 16, 1, @TacGiaInput);
-					ELSE IF NOT EXISTS (SELECT 1 FROM TacGia_Sach WHERE MaSach = @MaSachMoi AND MaTacGia = @MaTacGia)
-						INSERT INTO TacGia_Sach(MaSach, MaTacGia) VALUES (@MaSachMoi, @MaTacGia);
-				END
-
-				FETCH NEXT FROM cur INTO @TacGiaInput;
+				RAISERROR(N'Danh sách tác giả không hợp lệ', 16, 1);
+				RETURN;
 			END
 
-			CLOSE cur;
-			DEALLOCATE cur;
+			IF EXISTS (SELECT TacGiaRaw FROM @tblTacGiaRaw GROUP BY TacGiaRaw HAVING COUNT(*) > 1)
+			BEGIN
+				RAISERROR(N'Danh sách tác giả bị trùng', 16, 1);
+				RETURN;
+			END
 
+			-- sau khi validate thì thêm vào bảng tạm 2
+			DECLARE @tblTacGia TABLE (MaTacGia INT);
+			INSERT INTO @tblTacGia(MaTacGia)
+					SELECT CASE WHEN TRY_CAST(TacGiaRaw AS INT) IS NOT NULL THEN CAST(TacGiaRaw AS INT) ELSE tg.MaTacGia END
+					FROM @tblTacGiaRaw r LEFT JOIN TacGia tg ON tg.TenTacGia = r.TacGiaRaw
+					WHERE (TRY_CAST(TacGiaRaw AS INT) IS NOT NULL AND EXISTS (SELECT 1 FROM TacGia WHERE MaTacGia = CAST(TacGiaRaw AS INT)))
+							OR (TRY_CAST(TacGiaRaw AS INT) IS NULL AND tg.MaTacGia IS NOT NULL);
+
+			IF (SELECT COUNT(*) FROM @tblTacGia) <> (SELECT COUNT(*) FROM @tblTacGiaRaw)
+				RAISERROR(N'Có tác giả không tồn tại', 16, 1);
+
+			INSERT INTO TacGia_Sach(MaSach, MaTacGia)
+					SELECT @MaSachMoi, MaTacGia
+					FROM @tblTacGia;
+
+			SET @ThongBao = N'Đã thêm sách thành công với mã sách mới là: ' + CAST(@MaSachMoi AS NVARCHAR(10));
         COMMIT TRAN;
-		SET @ThongBao = N'Đã thêm sách thành công với mã sách mới là: ' + CAST(@MaSachMoi AS NVARCHAR(10));
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
@@ -422,9 +457,23 @@ GO
 CREATE OR ALTER PROCEDURE dbo.sp_XuLyTrangThaiTheThuVien (@MaThe INT, @LoaiXuLy NVARCHAR(20), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
+	-- kiểm tra thẻ thư viện tồn tại chưa
+	IF NOT EXISTS (SELECT 1 FROM TheThuVien WHERE MaThe = @MaThe)
+	BEGIN
+		RAISERROR (N'Thẻ thư viện không hợp lệ', 16, 1);
+		RETURN;
+	END
+
 	-- Trường hợp 1: Cập nhật trễ hạn cho phiếu mượn quá hạn và khóa thẻ
 	IF @LoaiXuLy = N'Khóa'
 	BEGIN
+		-- kiểm tra thẻ có trong phiếu mượn không
+		IF NOT EXISTS (SELECT 1 FROM PhieuMuon WHERE MaThe = @MaThe)
+		BEGIN
+			RAISERROR (N'Thẻ thư viện không có trong phiếu mượn', 16, 1);
+			RETURN;
+		END
+
 		-- D1 - cursor 1: Cập nhật trạng thái mượn = 'Trễ hạn'
 		DECLARE cur_CapNhatTreHan CURSOR FOR
 		SELECT ct.MaPhieuMuon, ct.MaSach
@@ -462,7 +511,7 @@ BEGIN
 
 		CLOSE cur_KhoaThe;
 		DEALLOCATE cur_KhoaThe;
-		SET @ThongBao = N'Đã thay đổi trạng thái và khóa thẻ khi quá hạn trả sách';
+		SET @ThongBao = N'Đã thay đổi trạng thái mượn và khóa thẻ khi quá hạn trả sách';
 	END
 
 	-- Trường hợp 2: Cập nhật trạng thái thẻ = 'Hủy thẻ' nếu độc giả không có bất kỳ sách đang mượn/nợ/đặt trước
@@ -477,7 +526,6 @@ BEGIN
 		END
 		UPDATE TheThuVien SET TrangThai = N'Hủy thẻ', Deleted_at = GETDATE() WHERE MaThe = @MaThe;
 		SET @ThongBao = N'Đã hủy thẻ thành công';
-		RETURN;
 	END
 END;
 GO
@@ -547,7 +595,7 @@ BEGIN
 	DECLARE @Result BIT = 0;
 	IF EXISTS (SELECT 1 
 				FROM ChiTietPhieuMuon ct JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
-				WHERE pm.MaThe = @MaThe AND ct.NgayTraThucTe IS NULL AND ct.NgayTraDuKien < GETDATE())
+				WHERE pm.MaThe = @MaThe AND ct.NgayTraThucTe IS NULL AND ct.NgayTraDuKien < GETDATE() AND ct.TrangThaiMuon = N'Trễ hạn')
 	BEGIN
 		SET @Result = 1;
 	END
@@ -686,7 +734,7 @@ BEGIN
 						FROM ChiTietPhieuMuon ct
 						JOIN PhieuMuon pm2 ON ct.MaPhieuMuon = pm2.MaPhieuMuon
 						WHERE pm2.MaThe = pm.MaThe
-						  AND ct.TrangThaiMuon = N'Đang mượn') > 10)
+						  AND ct.TrangThaiMuon = N'Đang mượn') > 9)
 	BEGIN
 		RAISERROR(N'Số lượng sách mượn vượt quá giới hạn 10 cuốn cho một độc giả', 16, 1);
         ROLLBACK TRANSACTION;
