@@ -367,93 +367,10 @@ BEGIN
 END;
 GO
 
--- 5. Cập nhật thông tin
--- Update các attr HoTen, DiaChi, NgaySinh, CCCD, SoDienThoai, Username, Password cho bảng DocGia, NhanVien
-CREATE OR ALTER PROCEDURE dbo.sp_CapNhatThongTin
-(@Loai NVARCHAR(15), @Ma INT, @HoTen NVARCHAR(100) = NULL, @DiaChi NVARCHAR(200) = NULL, @NgaySinh DATE = NULL,
-@CCCD NVARCHAR(12) = NULL, @SDT NVARCHAR(10) = NULL, @Username NVARCHAR(45) NULL, @PWD NVARCHAR(255) = NULL, @ThongBao NVARCHAR(200) OUT)
-AS
-BEGIN
-	BEGIN TRY
-		BEGIN TRAN;
-			DECLARE @SQL_statement NVARCHAR(MAX) = N'UPDATE ';
-			DECLARE @SQL_clause NVARCHAR(MAX) = '';
-
-			--Kiểm tra loại bảng truyền vào
-			IF @Loai = N'DocGia'
-			BEGIN
-				IF NOT EXISTS (SELECT 1 FROM DocGia Where MaDocGia = @Ma)
-				BEGIN
-					RAISERROR(N'Độc giả không tồn tại', 16, 1);
-					RETURN;
-				END
-				SET @SQL_statement += N'DocGia SET ';
-			END
-			ELSE IF @Loai = N'NhanVien'
-			BEGIN
-				IF NOT EXISTS (SELECT 1 FROM NhanVien Where MaNhanVien = @Ma)
-				BEGIN
-					RAISERROR(N'Nhân viên không tồn tại', 16, 1);
-					RETURN;
-				END
-				SET @SQL_statement += N'NhanVien SET ';
-			END
-			ELSE
-			BEGIN
-				RAISERROR(N'Bảng không hợp lệ', 16, 1);
-				RETURN;
-			END
-
-			-- Setup cột update
-			IF @HoTen IS NOT NULL
-				SET @SQL_clause += N'HoTen = @HoTen,';
-			IF @DiaChi IS NOT NULL
-				SET @SQL_clause += N'DiaChi = @DiaChi,';
-			IF @NgaySinh IS NOT NULL
-				SET @SQL_clause += N'NgaySinh = @NgaySinh,';
-			IF @CCCD IS NOT NULL
-				SET @SQL_clause += N'CCCD = @CCCD,';
-			IF @SDT IS NOT NULL
-				SET @SQL_clause += N'SoDienThoai = @SDT,';
-			IF @Username IS NOT NULL
-				SET @SQL_clause += N'Username = @Username,';
-			IF @PWD IS NOT NULL
-				SET @SQL_clause += N'Password = @PWD,'
-
-			-- Bỏ dấu ',' cuối, cộng chuỗi lại
-			IF LEN(@SQL_clause) = 0
-			BEGIN
-				RAISERROR(N'Không có cột cần cập nhật', 16, 1);
-				RETURN;
-			END
-			SET @SQL_clause = LEFT(@SQL_clause, LEN(@SQL_clause) - 1);
-			SET @SQL_statement += @SQL_clause;
-
-			-- Setup điều kiện để update
-			IF @Loai = N'DocGia'
-				SET @SQL_statement += N' WHERE MaDocGia = @Ma';
-			ELSE
-				SET @SQL_statement += N' WHERE MaNhanVien = @Ma';
-
-			-- thực thi statement string
-			EXEC sp_executesql @SQL_statement,
-				N'@HoTen NVARCHAR(100), @DiaChi NVARCHAR(200), @NgaySinh DATE, @CCCD NVARCHAR(12),  @SDT NVARCHAR(10), @Username NVARCHAR(45), @PWD NVARCHAR(255), @Ma INT',
-				@HoTen=@HoTen, @DiaChi=@DiaChi, @NgaySinh=@NgaySinh,  @CCCD=@CCCD, @SoDienThoai=@SDT, @Username=@Username, @Password=@PWD, @Ma=@Ma;
-		COMMIT TRAN;
-		SET @ThongBao = N'Đã cập nhật thông tin thành công';
-	END TRY
-	BEGIN CATCH
-		IF @@TRANCOUNT > 0
-			ROLLBACK TRAN;
-		THROW;
-	END CATCH
-END;
-GO
-
--- 6. Hủy/Khóa thẻ thư viện của độc giả (input: mathe, loaixuly)
+-- 5. Hủy/Khóa thẻ thư viện của độc giả (input: mathe, loaixuly)
 -- Kiểm tra độc giả còn đang mượn/nợ sách không
--- Nếu không và loaixuly = 'hủy' thì Update TrangThaiThe = 'Hủy thẻ' (gọi cursor D2)
--- Nếu có và loaixuly = 'khóa' thì Update TrangThaiThe = 'Khóa thẻ' và cập nhật trạng thái mượn = 'Trễ hạn' (gọi cursor D1)
+-- Nếu không và loaixuly = 'hủy' thì Update TrangThaiThe = 'Hủy thẻ'
+-- Nếu có và loaixuly = 'khóa' thì Update TrangThaiThe = 'Khóa thẻ' và cập nhật trạng thái mượn = 'Trễ hạn' (gọi cursor D1, D2)
 CREATE OR ALTER PROCEDURE dbo.sp_XuLyTrangThaiTheThuVien (@MaThe INT, @LoaiXuLy NVARCHAR(20), @ThongBao NVARCHAR(200) OUT)
 AS
 BEGIN
@@ -750,12 +667,12 @@ GO
 
 -- 1. Thay đổi trạng thái mượn trong ChiTietPhieuMuon
 -- Kiểm tra các sách đang mượn có đang trễ hạn không. Có thì đổi TrangThaiMuon = 'Trễ hạn'
--- nằm trong A6
+-- nằm trong A5
 
 -- 2. Thay đổi trạng thái thẻ thư viện
 -- Kiềm tra MaPhieuMuon trong bảng ChiTietPhieuMuon
 -- Những mã phiếu có NgayTraDuKien < GETDATE() và NgayTraThucTe IS NULL thì đổi TrangThai của thẻ thư viện = 'Bị khóa'
--- nằm trong A6
+-- nằm trong A5
 
 
 -- ==============================
