@@ -627,26 +627,31 @@ AFTER INSERT, UPDATE
 AS
 BEGIN
 	-- Trường hợp 1: Giảm khi mượn sách
+	-- Giảm số lượng
 	IF EXISTS (SELECT 1
 				FROM inserted i LEFT JOIN deleted d ON i.MaPhieuMuon = d.MaPhieuMuon AND i.MaSach = d.MaSach
 								JOIN Sach s ON s.MaSach = i.MaSach
-				WHERE d.MaPhieuMuon IS NULL AND s.SoLuong <= 0)
+				WHERE d.MaPhieuMuon IS NULL)
 	BEGIN
-		RAISERROR (N'Sách đã hết, không thể mượn. Hãy chuyển qua mượn trước!', 16, 1);
-		ROLLBACK TRANSACTION;
-		RETURN;
+		IF EXISTS (SELECT 1
+					FROM inserted i LEFT JOIN deleted d ON i.MaPhieuMuon = d.MaPhieuMuon AND i.MaSach = d.MaSach
+									JOIN Sach s ON s.MaSach = i.MaSach
+					WHERE d.MaPhieuMuon IS NULL AND s.SoLuong <= 0)
+		BEGIN
+			RAISERROR (N'Sách đã hết, không thể mượn. Hãy chuyển qua mượn trước!', 16, 1);
+			ROLLBACK TRANSACTION;
+			RETURN;
+		END
+		
+		UPDATE s SET SoLuong = SoLuong - 1
+					FROM Sach s JOIN inserted i ON s.MaSach = i.MaSach
+								LEFT JOIn deleted d ON i.MaPhieuMuon = d.MaPhieuMuon AND i.MaSach = d.MaSach
+					WHERE d.MaPhieuMuon IS NULL;
 	END
 
-	-- Giảm số lượng
-	UPDATE s SET SoLuong = SoLuong - 1
-				FROM Sach s JOIN inserted i ON s.MaSach = i.MaSach
-							LEFT JOIn deleted d ON i.MaPhieuMuon = d.MaPhieuMuon AND i.MaSach = d.MaSach
-				WHERE d.MaPhieuMuon IS NULL;
-
 	-- Trường hợp 2: Tăng khi trả sách với trạng thái tốt
-	IF EXISTS (SELECT 1
-				FROM inserted i JOIN deleted d ON i.MaPhieuMuon = d.MaPhieuMuon AND i.MaSach = d.MaSach
-				WHERE d.NgayTraThucTe IS NULL AND i.NgayTraThucTe IS NOT NULL AND i.TrangThaiSach = N'Tốt')
+	IF EXISTS (SELECT 1 FROM inserted)
+       AND EXISTS (SELECT 1 FROM deleted)
 	BEGIN
 		UPDATE s SET SoLuong = SoLuong + 1
 					FROM Sach s JOIN inserted i ON s.MaSach = i.MaSach
