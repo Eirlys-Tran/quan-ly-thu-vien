@@ -112,6 +112,7 @@ BEGIN
 	BEGIN
 		UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
 		SET @ThongBao = N'Sách đã quá hạn trả. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		RETURN;
 	END
 	
 	-- lấy ra danh sách yêu cầu đang chờ duyệt
@@ -123,6 +124,12 @@ BEGIN
 				FROM YeuCauGiaHan yc JOIN ChiTietPhieuMuon ct ON yc.MaPhieuMuon = ct.MaPhieuMuon AND yc.MaSach = ct.MaSach
 				WHERE yc.MaPhieuMuon = @MaPhieu AND yc.MaSach = @MaSach AND yc.TrangThai = N'Đang chờ';
 	
+	IF NOT EXISTS (SELECT 1 FROM @tblGiaHan)
+	BEGIN
+		RAISERROR(N'Yêu cầu gia hạn không hợp lệ', 16, 1);
+		RETURN;
+	END
+
 	IF @SachDT > 0
 	BEGIN
 		UPDATE ycgh SET NgayLapPhieu = dt.NgayLap
@@ -136,7 +143,7 @@ BEGIN
 						WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-			SET @ThongBao = 'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 
 		-- từ chối
@@ -153,7 +160,7 @@ BEGIN
 					WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 		UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-		SET @ThongBao = 'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 	END
 END;
 GO
@@ -163,7 +170,7 @@ GO
 -- 3. Xử lý trả sách
 -- Update TrangThai trong bảng ChiTietPhieuMuon
 -- Tính tiền phạt và tự động tạo hóa đơn phạt (nếu có - gọi func Tính tiền phạt trễ hạn/mất sách)
-CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX), @MaNhanVien INT, @ThongBao NVARCHAR(200) OUT)
+CREATE OR ALTER PROCEDURE dbo.sp_XuLyTraSach (@MaPhieuMuon INT, @DSSach NVARCHAR(MAX), @DSTrangThaiSach NVARCHAR(MAX), @MaNhanVien INT, @ThongBao NVARCHAR(500) OUT)
 AS
 BEGIN
 	BEGIN TRY
@@ -236,7 +243,7 @@ BEGIN
 			END
 
 			-- Update ChiTietPhieuMuon
-			UPDATE ct SET NgayTraThucTe = GETDATE(), TrangThaiMuon = CASE WHEN ct.NgayTraDuKien > GETDATE() THEN N'Đã trả'
+			UPDATE ct SET NgayTraThucTe = GETDATE(), TrangThaiMuon = CASE WHEN ct.NgayTraDuKien >= GETDATE() THEN N'Đã trả'
 																			WHEN ct.NgayTraDuKien < GETDATE() THEN N'Trễ hạn'END,
 													TrangThaiSach = s.TrangThaiSach
 						FROM ChiTietPhieuMuon ct JOIN @tblSach s ON ct.MaSach = s.MaSach
@@ -257,13 +264,17 @@ BEGIN
 			
 			-- Kiểm tra sau khi độc giả trả sách rồi thì còn sách nào trễ hạn chưa trả không => có thực hiện khóa thẻ
 			DECLARE @TreHan BIT = 0;
+			DECLARE @Msg NVARCHAR(500) = N'Xử lí trả sách thành công. ';
 			IF EXISTS (SELECT 1
 						FROM ChiTietPhieuMuon ct JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
 						WHERE pm.MaThe = @MaThe AND ct.NgayTraDuKien < GETDATE() AND ct.NgayTraThucTe IS NULL)
 				SET @TreHan = 1;
 
 			IF @TreHan > 0
+			BEGIN
 				EXEC dbo.sp_XuLyTrangThaiTheThuVien @MaThe, N'Khóa', @ThongBao;
+				SET @Msg = @Msg + N'Thẻ thư viện bị khóa vì còn sách trễ hạn khác chưa trả';
+			END
 			ELSE
 				UPDATE TheThuVien SET TrangThai = N'Hoạt động', Updated_at = GETDATE() WHERE MaThe = @MaThe;
 
@@ -272,12 +283,10 @@ BEGIN
 			IF @RowCount > 0
 			BEGIN
 				DECLARE @DanhSachID NVARCHAR(MAX) = (SELECT STRING_AGG(CAST(ID AS NVARCHAR(10)), ',') FROM @InsertedID);
-				SET @ThongBao = N'Xử lý trả sách thành công và độc giả có ' + CAST(@RowCount AS NVARCHAR(10)) + ' hóa đơn với mã: ' + @DanhSachID;
+				SET @Msg = @Msg + N'Độc giả có ' + CAST(@RowCount AS NVARCHAR(10)) + N' hóa đơn với mã: ' + @DanhSachID;
 			END
-			ELSE
-				SET @ThongBao = N'Xử lý trả sách thành công';
+			SET @ThongBao = @Msg;
         COMMIT TRAN;
-		
     END TRY
     BEGIN CATCH
         IF @@TRANCOUNT > 0
@@ -364,6 +373,89 @@ BEGIN
 			ROLLBACK TRAN;
         THROW;
     END CATCH
+END;
+GO
+
+-- 5. Cập nhật thông tin
+-- Update các attr HoTen, DiaChi, NgaySinh, CCCD, SoDienThoai, Username, Password cho bảng DocGia, NhanVien
+CREATE OR ALTER PROCEDURE dbo.sp_CapNhatThongTin
+(@Loai NVARCHAR(15), @Ma INT, @HoTen NVARCHAR(100) = NULL, @DiaChi NVARCHAR(200) = NULL, @NgaySinh DATE = NULL,
+@CCCD NVARCHAR(12) = NULL, @SDT NVARCHAR(10) = NULL, @Username NVARCHAR(45) NULL, @PWD NVARCHAR(255) = NULL, @ThongBao NVARCHAR(200) OUT)
+AS
+BEGIN
+	BEGIN TRY
+		BEGIN TRAN;
+			DECLARE @SQL_statement NVARCHAR(MAX) = N'UPDATE ';
+			DECLARE @SQL_clause NVARCHAR(MAX) = '';
+
+			--Kiểm tra loại bảng truyền vào
+			IF @Loai = N'DocGia'
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM DocGia Where MaDocGia = @Ma)
+				BEGIN
+					RAISERROR(N'Độc giả không tồn tại', 16, 1);
+					RETURN;
+				END
+				SET @SQL_statement += N'DocGia SET ';
+			END
+			ELSE IF @Loai = N'NhanVien'
+			BEGIN
+				IF NOT EXISTS (SELECT 1 FROM NhanVien Where MaNhanVien = @Ma)
+				BEGIN
+					RAISERROR(N'Nhân viên không tồn tại', 16, 1);
+					RETURN;
+				END
+				SET @SQL_statement += N'NhanVien SET ';
+			END
+			ELSE
+			BEGIN
+				RAISERROR(N'Bảng không hợp lệ', 16, 1);
+				RETURN;
+			END
+
+			-- Setup cột update
+			IF @HoTen IS NOT NULL
+				SET @SQL_clause += N'HoTen = @HoTen,';
+			IF @DiaChi IS NOT NULL
+				SET @SQL_clause += N'DiaChi = @DiaChi,';
+			IF @NgaySinh IS NOT NULL
+				SET @SQL_clause += N'NgaySinh = @NgaySinh,';
+			IF @CCCD IS NOT NULL
+				SET @SQL_clause += N'CCCD = @CCCD,';
+			IF @SDT IS NOT NULL
+				SET @SQL_clause += N'SoDienThoai = @SDT,';
+			IF @Username IS NOT NULL
+				SET @SQL_clause += N'Username = @Username,';
+			IF @PWD IS NOT NULL
+				SET @SQL_clause += N'Password = @PWD,'
+
+			-- Bỏ dấu ',' cuối, cộng chuỗi lại
+			IF LEN(@SQL_clause) = 0
+			BEGIN
+				RAISERROR(N'Không có cột cần cập nhật', 16, 1);
+				RETURN;
+			END
+			SET @SQL_clause = LEFT(@SQL_clause, LEN(@SQL_clause) - 1);
+			SET @SQL_statement += @SQL_clause;
+
+			-- Setup điều kiện để update
+			IF @Loai = N'DocGia'
+				SET @SQL_statement += N' WHERE MaDocGia = @Ma';
+			ELSE
+				SET @SQL_statement += N' WHERE MaNhanVien = @Ma';
+
+			-- thực thi statement string
+			EXEC sp_executesql @SQL_statement,
+				N'@HoTen NVARCHAR(100), @DiaChi NVARCHAR(200), @NgaySinh DATE, @CCCD NVARCHAR(12),  @SDT NVARCHAR(10), @Username NVARCHAR(45), @PWD NVARCHAR(255), @Ma INT',
+				@HoTen=@HoTen, @DiaChi=@DiaChi, @NgaySinh=@NgaySinh,  @CCCD=@CCCD, @SoDienThoai=@SDT, @Username=@Username, @Password=@PWD, @Ma=@Ma;
+		COMMIT TRAN;
+		SET @ThongBao = N'Đã cập nhật thông tin thành công';
+	END TRY
+	BEGIN CATCH
+		IF @@TRANCOUNT > 0
+			ROLLBACK TRAN;
+		THROW;
+	END CATCH
 END;
 GO
 
@@ -625,7 +717,7 @@ AFTER INSERT
 AS
 BEGIN
     IF EXISTS (SELECT 1
-				FROM inserted i JOIN dbo.YeuCauGiaHan y ON i.MaPhieuMuon = y.MaPhieuMuon AND i.MaSach = y.MaSach)
+				FROM inserted i JOIN dbo.YeuCauGiaHan y ON i.MaPhieuMuon = y.MaPhieuMuon AND i.MaSach = y.MaSach AND y.MaYeuCauGiaHan <> i.MaYeuCauGiaHan)
     BEGIN
         RAISERROR(N'Chỉ được gia hạn 1 lần cho 1 sách', 16, 1);
         ROLLBACK TRANSACTION;
