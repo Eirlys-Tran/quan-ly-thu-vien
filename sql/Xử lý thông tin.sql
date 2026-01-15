@@ -111,7 +111,7 @@ BEGIN
 	IF EXISTS (SELECT 1 FROM ChiTietPhieuMuon WHERE MaPhieuMuon = @MaPhieu AND MaSach = @MaSach AND TrangThaiMuon = N'Trễ hạn' AND NgayTraThucTe IS NULL)
 	BEGIN
 		UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
-		SET @ThongBao = N'Sách đã quá hạn trả. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		SET @ThongBao = N'Sách đã quá hạn trả. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		RETURN;
 	END
 	
@@ -143,14 +143,14 @@ BEGIN
 						WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-			SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 
 		-- từ chối
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE (NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) < 7) OR NgayTaoYC > NgayLapPhieu)
 		BEGIN
 			UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
-			SET @ThongBao = N'Sách nằm trong danh sách mượn trước. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			SET @ThongBao = N'Sách nằm trong danh sách mượn trước. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 		END
 	END
 	ELSE
@@ -160,7 +160,7 @@ BEGIN
 					WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 		UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-		SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + ', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
 	END
 END;
 GO
