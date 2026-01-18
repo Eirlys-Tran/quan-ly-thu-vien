@@ -132,8 +132,9 @@ BEGIN
 
 	IF @SachDT > 0
 	BEGIN
-		UPDATE ycgh SET NgayLapPhieu = dt.NgayLap
-				FROM @tblGiaHan ycgh JOIN dbo.fn_LaySachDatTruoc (@MaSach) dt ON ycgh.MaPhieuMuon = dt.MaPhieuMuon;
+		UPDATE @tblGiaHan SET NgayLapPhieu = (SELECT TOP 1 NgayLap
+												FROM dbo.fn_LaySachDatTruoc (@MaSach)
+												ORDER BY NgayLap ASC);
 		
 		-- Duyệt: ngày yêu cầu gia hạn < ngày tạo mượn sách VÀ <= so với ngày trả dự kiến
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) >= 7)
@@ -143,14 +144,14 @@ BEGIN
 						WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 			UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-			SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách: ' + CAST(@MaSach AS NVARCHAR(10));
 		END
 
 		-- từ chối
 		IF EXISTS (SELECT 1 FROM @tblGiaHan WHERE (NgayTaoYC < NgayLapPhieu AND DATEDIFF(DAY, NgayTaoYC, NgayTraDuKien) < 7) OR NgayTaoYC > NgayLapPhieu)
 		BEGIN
 			UPDATE YeuCauGiaHan SET TrangThai = N'Từ chối' WHERE MaYeuCauGiaHan = @MaYeuCau;
-			SET @ThongBao = N'Sách nằm trong danh sách mượn trước. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+			SET @ThongBao = N'Sách nằm trong danh sách mượn trước. Gia hạn thất bại với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách: ' + CAST(@MaSach AS NVARCHAR(10));
 		END
 	END
 	ELSE
@@ -160,11 +161,10 @@ BEGIN
 					WHERE ct.MaPhieuMuon = @MaPhieu AND ct.MaSach = @MaSach;
 
 		UPDATE YeuCauGiaHan SET TrangThai = N'Đã duyệt' WHERE MaYeuCauGiaHan = @MaYeuCau;
-		SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách:' + CAST(@MaSach AS NVARCHAR(10));
+		SET @ThongBao = N'Gia hạn thành công với mã phiếu mượn: ' + CAST(@MaPhieu AS NVARCHAR(10)) + N', mã sách: ' + CAST(@MaSach AS NVARCHAR(10));
 	END
 END;
 GO
--- test 
 
 
 -- 3. Xử lý trả sách
@@ -593,7 +593,7 @@ RETURN
 	FROM ChiTietPhieuMuon ct JOIN PhieuMuon pm ON ct.MaPhieuMuon = pm.MaPhieuMuon
 	WHERE ct.MaSach = @MaSach AND ct.TrangThaiMuon = N'Đặt trước'
 GO
--- select * from fn_LaySachDatTruoc (4)
+-- select * from fn_LaySachDatTruoc (12)
 
 -- 3. Kiểm tra nợ sách quá hạn
 -- Input: MaThe
